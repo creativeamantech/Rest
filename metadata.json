@@ -1,0 +1,6 @@
+{
+  "name": "Case Allocation & Transfer Master",
+  "description": "Google Sheets-connected allocation and executive-to-executive case transfer tracking system with smart bulk paste and search.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
