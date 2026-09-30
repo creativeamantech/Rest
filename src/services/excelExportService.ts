@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { AllocationItem } from '../types';
+import { VBA_MACRO_CODE } from './vbaMacroService';
 
 export const AVAILABILITY_OPTIONS = ['Yes', 'No', 'Third Party'];
 
@@ -694,16 +695,39 @@ export async function exportAllocationsToExcelWithValidation(
   lookupSheet.getColumn('G').width = 38;
   lookupSheet.getColumn('H').width = 18;
 
-  // Generate buffer and trigger browser download
+  // ─────────────────────────────────────────────────────────────
+  // 5. SHEET 5: Embedded VBA Macro Script (.xlsm Automation)
+  // ─────────────────────────────────────────────────────────────
+  const macroSheet = workbook.addWorksheet('VBA_Macro_Module');
+  macroSheet.getCell('A1').value = '⚡ CASE ALLOCATION - TAMPER-PROOF VBA AUTO-MACRO CODE';
+  macroSheet.getCell('A1').font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+  macroSheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+  macroSheet.getRow(1).height = 28;
+
+  macroSheet.getCell('A3').value = '💡 निर्देश: Alt + F11 दबाएं -> Calling_Feedback शीट पर डबल क्लिक करें -> नीचे दिया कोड पेस्ट करें।';
+  macroSheet.getCell('A3').font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF475569' } };
+
+  const vbaLines = VBA_MACRO_CODE.split('\n');
+  vbaLines.forEach((line, idx) => {
+    const c = macroSheet.getCell(`A${idx + 5}`);
+    c.value = line;
+    c.font = { name: 'Consolas', size: 9.5, color: { argb: 'FF1E293B' } };
+  });
+  macroSheet.getColumn('A').width = 110;
+
+  // Generate buffer and trigger browser download as Macro-Enabled Excel (.xlsm)
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    type: 'application/vnd.ms-excel.sheet.macroEnabled.12',
   });
 
   const dateStr = new Date().toISOString().split('T')[0];
-  const downloadName = options.fileName
-    ? `${options.fileName}.xlsx`
-    : `Case_Allocations_Audit_${dateStr}.xlsx`;
+  let downloadName = options.fileName || `Case_Allocations_Macro_${dateStr}`;
+  if (downloadName.endsWith('.xlsx')) {
+    downloadName = downloadName.replace(/\.xlsx$/, '.xlsm');
+  } else if (!downloadName.endsWith('.xlsm')) {
+    downloadName = `${downloadName}.xlsm`;
+  }
 
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -716,11 +740,11 @@ export async function exportAllocationsToExcelWithValidation(
 }
 
 /**
- * Downloads a pure blank template with the exact columns, multi-sheet structure, and protection
+ * Downloads a pure blank template with exact columns, multi-sheet structure, and embedded macro (.xlsm)
  */
 export async function exportBlankTemplateWithValidation(): Promise<void> {
   await exportAllocationsToExcelWithValidation([], {
-    fileName: `Feedback_Format_Audit_Template_${new Date().toISOString().split('T')[0]}`,
+    fileName: `Feedback_Calling_Macro_Template_${new Date().toISOString().split('T')[0]}.xlsm`,
     includeStaggeredTimestamps: false,
   });
 }

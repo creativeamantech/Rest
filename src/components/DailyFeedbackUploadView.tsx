@@ -361,6 +361,16 @@ export const DailyFeedbackUploadView: React.FC<DailyFeedbackUploadViewProps> = (
               <span className="text-xl font-black">{myAssignedCases.length}</span>
             </div>
 
+            <button
+              type="button"
+              onClick={handleDownloadBlankTemplate}
+              disabled={isDownloadingTemplate}
+              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-xs rounded-2xl shadow-lg transition-all flex items-center gap-2 cursor-pointer shrink-0 disabled:opacity-50"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-white" />
+              <span>{isDownloadingTemplate ? 'डाउनलोड हो रहा है...' : 'खाली मैक्रो टेम्पलेट (.xlsm)'}</span>
+            </button>
+
             {onOpenMacroGuide && (
               <button
                 type="button"
@@ -368,7 +378,7 @@ export const DailyFeedbackUploadView: React.FC<DailyFeedbackUploadViewProps> = (
                 className="px-4 py-2.5 bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs rounded-2xl shadow-lg transition-all flex items-center gap-2 cursor-pointer shrink-0"
               >
                 <FileCode className="w-4 h-4 text-purple-600" />
-                <span>मैक्रो (.xlsm) सेटअप ↗</span>
+                <span>मैक्रो (.xlsm) गाइड ↗</span>
               </button>
             )}
           </div>

@@ -98,8 +98,7 @@ export const MasterAllocationsTable: React.FC<MasterTableProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [showMacroModal, setShowMacroModal] = useState(false);
 
-  // EXCEL EXPORT WITH DATA VALIDATION DROPDOWNS & UNIQUE STAGGERED TIMESTAMPS
-  // Enforces that every feedback cell has a timestamp with distinct seconds
+  // EXCEL MACRO EXPORT (.xlsm) WITH DATA VALIDATION DROPDOWNS & UNIQUE STAGGERED TIMESTAMPS
   const handleExportExcel = async (onlyBlank = false, withTimestamps = true) => {
     try {
       setIsExporting(true);
@@ -110,48 +109,17 @@ export const MasterAllocationsTable: React.FC<MasterTableProps> = ({
           ? 'Master_Allocations_Feedback'
           : `My_Allocations_Feedback_${currentUserUsername}`;
         await exportAllocationsToExcelWithValidation(filtered, {
-          fileName: `${fileName}_${new Date().toISOString().split('T')[0]}`,
+          fileName: `${fileName}_${new Date().toISOString().split('T')[0]}.xlsm`,
           currentUser: currentUserName || currentUserUsername,
           userRole,
           includeStaggeredTimestamps: withTimestamps,
         });
       }
     } catch (err) {
-      console.error('Failed to export Excel file:', err);
+      console.error('Failed to export Excel macro file:', err);
     } finally {
       setIsExporting(false);
     }
-  };
-
-  // STRICT CSV EXPORT: Only exports the cases the user is permitted to see
-  const handleExportCSV = () => {
-    if (userAllocations.length === 0) return;
-    const headers = [
-      'Agreement ID',
-      'Executive Name',
-      'Allocation Date',
-      'Status',
-      'Last Updated',
-      'Notes',
-    ];
-    const rows = userAllocations.map(a => [
-      `"${a.agreementId}"`,
-      `"${a.executiveName}"`,
-      `"${a.allocationDate}"`,
-      `"${a.status}"`,
-      `"${a.lastUpdated || ''}"`,
-      `"${(a.notes || '').replace(/"/g, '""')}"`,
-    ]);
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    const fileName = isAdmin ? 'Master_Allocations' : `My_Allocations_${currentUserUsername}`;
-    link.setAttribute('download', `${fileName}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const getStatusBadge = (status: string) => {
@@ -266,54 +234,30 @@ export const MasterAllocationsTable: React.FC<MasterTableProps> = ({
               onClick={() => handleExportExcel(false, true)}
               disabled={isExporting || userAllocations.length === 0}
               className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              title="4-शीट वाली सुरक्षित Excel वर्कबुक डाउनलोड करें: 1. क्लीन कॉलिंग शीट 2. लॉक टाइमस्टैम्प्स (अलग सेकंड्स) 3. लॉक हिस्ट्री 4. डायनामिक केस सर्च"
+              title="डायरेक्ट मैक्रो-इनेबल्ड वर्कबुक (.xlsm) डाउनलोड करें जिसमें सभी आवंटित केस, ऑटो-टाइमस्टैम्प और हिस्ट्री मॉडयूल शामिल हैं"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
-              <span>{isExporting ? 'डाउनलोड हो रहा है...' : 'Excel डाउनलोड (4-Sheets Audit)'}</span>
+              <span>{isExporting ? 'डाउनलोड हो रहा है...' : 'डायरेक्ट मैक्रो फ़ाइल (.xlsm)'}</span>
             </button>
 
             <button
               onClick={() => setShowMacroModal(true)}
               className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
-              title="ऑफलाइन Excel में ऑटो-टाइमस्टैम्प और ऑटो-हिस्ट्री चालू करने का मैक्रो (.xlsm / VBA) सेटअप देखें"
+              title="VBA मैक्रो कोड और सेटअप गाइड देखें"
             >
               <FileCode className="w-4 h-4 text-purple-200" />
-              <span>मैक्रो ऑटोमेशन (.xlsm)</span>
+              <span>मैक्रो गाइड (.xlsm)</span>
             </button>
 
             <button
               onClick={() => handleExportExcel(true, false)}
               disabled={isExporting}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              title="डेटा वैलिडेशन व एंटी-डुप्लिकेट टाइम नियम वाला खाली टेम्पलेट डाउनलोड करें (.xlsx)"
+              title="ब्लैंक मैक्रो टेम्पलेट (.xlsm) डाउनलोड करें"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden lg:inline">खाली टेम्पलेट</span>
+              <span className="hidden lg:inline">खाली मैक्रो टेम्पलेट (.xlsm)</span>
             </button>
-
-            {/* Optional Standard .xlsx / CSV - Only visible if permitted by Admin in Settings */}
-            {allowStandardXlsx && (
-              <>
-                <button
-                  onClick={() => handleExportExcel(false, false)}
-                  disabled={isExporting || userAllocations.length === 0}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Excel डाउनलोड (खाली टाइमस्टैम्प सेल्स ताकि कॉलर खुद टाइम भरे)"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="hidden sm:inline">ब्लैंक टाइम Excel</span>
-                </button>
-
-                <button
-                  onClick={handleExportCSV}
-                  disabled={userAllocations.length === 0}
-                  className="px-2.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-medium rounded-xl transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 disabled:opacity-50"
-                  title="साधारण CSV डाउनलोड करें"
-                >
-                  <span>CSV</span>
-                </button>
-              </>
-            )}
           </div>
         </div>
       </div>

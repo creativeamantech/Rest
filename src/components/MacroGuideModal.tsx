@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { VBA_MACRO_CODE, downloadVbaModuleFile } from '../services/vbaMacroService';
+import { exportBlankTemplateWithValidation } from '../services/excelExportService';
 import {
   FileCode,
   Copy,
@@ -12,6 +13,7 @@ import {
   Lock,
   History,
   Clock,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 interface MacroGuideModalProps {
@@ -22,12 +24,25 @@ interface MacroGuideModalProps {
 export const MacroGuideModal: React.FC<MacroGuideModalProps> = ({ isOpen, onClose }) => {
   const [copied, setCopied] = useState(false);
 
+  const [isDownloadingMacro, setIsDownloadingMacro] = useState(false);
+
   if (!isOpen) return null;
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(VBA_MACRO_CODE);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleDownloadMacroFile = async () => {
+    try {
+      setIsDownloadingMacro(true);
+      await exportBlankTemplateWithValidation();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDownloadingMacro(false);
+    }
   };
 
   return (
@@ -135,14 +150,24 @@ export const MacroGuideModal: React.FC<MacroGuideModalProps> = ({ isOpen, onClos
               <span>रेडी-टू-यूज़ VBA मैक्रो कोड:</span>
             </span>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadMacroFile}
+                disabled={isDownloadingMacro}
+                className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-purple-200" />
+                <span>{isDownloadingMacro ? 'डाउनलोड हो रहा है...' : 'डायरेक्ट मैक्रो फ़ाइल (.xlsm) डाउनलोड करें'}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleCopyCode}
                 className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'कोड कॉपी हो गया!' : 'मैक्रो कोड कॉपी करें'}</span>
+                <span>{copied ? 'कोड कॉपी हो गया!' : 'मैक्रो कोड कॉपी'}</span>
               </button>
 
               <button
@@ -151,7 +176,7 @@ export const MacroGuideModal: React.FC<MacroGuideModalProps> = ({ isOpen, onClos
                 className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>.bas फ़ाइल डाउनलोड करें</span>
+                <span>.bas फ़ाइल</span>
               </button>
             </div>
           </div>
