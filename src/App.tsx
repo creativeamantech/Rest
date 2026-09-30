@@ -66,15 +66,6 @@ const STORAGE_KEY_LOCAL_USERS = 'case_alloc_local_users';
 const STORAGE_KEY_ALLOW_STANDARD_XLSX = 'case_alloc_allow_standard_xlsx';
 const STORAGE_KEY_ALLOCATIONS = 'case_alloc_local_allocations';
 const STORAGE_KEY_LOGS = 'case_alloc_local_logs';
-const STORAGE_KEY_PENDING_QUEUE = 'case_alloc_pending_cloud_sync_queue';
-
-export interface PendingFeedbackSyncItem {
-  agreementId: string;
-  status: string;
-  detailedFeedback?: string;
-  executiveName?: string;
-  updatedAt: string;
-}
 
 // Fallback initial accounts
 const DEFAULT_USER_ACCOUNTS: UserAccount[] = INITIAL_DEFAULT_USERS.map((row, index) => ({
@@ -126,24 +117,13 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_ALLOW_STANDARD_XLSX, String(val));
   };
 
-  // Google Connection & Pending Cloud Queue state
-  const [isGoogleConnected, setIsGoogleConnected] = useState<boolean>(false);
-  const [pendingQueue, setPendingQueue] = useState<PendingFeedbackSyncItem[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY_PENDING_QUEUE);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // Drive sheets list
   const [driveSpreadsheets, setDriveSpreadsheets] = useState<SpreadsheetInfo[]>([]);
   const [isLoadingDrive, setIsLoadingDrive] = useState(false);
   const [isSheetSettingsOpen, setIsSheetSettingsOpen] = useState(false);
   const [isProcessingSheet, setIsProcessingSheet] = useState(false);
 
-  // App Data state - Persisted locally so executives see cases immediately without Google Auth!
+  // App Data state
   const [allocations, setAllocations] = useState<AllocationItem[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_ALLOCATIONS);
@@ -283,41 +263,9 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_SHEET_NAME, name);
   };
 
-  // Flush offline or un-synced executive updates into Google Sheet
-  const flushPendingQueue = useCallback(async (token: string, sheetId: string) => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY_PENDING_QUEUE);
-      const queue: PendingFeedbackSyncItem[] = stored ? JSON.parse(stored) : [];
-      if (queue.length === 0) return;
-
-      await syncFeedbackUploadToGoogleSheet(
-        token,
-        sheetId,
-        queue.map(q => ({
-          agreementId: q.agreementId,
-          status: q.status,
-          detailedFeedback: q.detailedFeedback,
-          executiveName: q.executiveName,
-        })),
-        'Cloud Auto-Sync',
-        'Offline Queue Flush'
-      );
-
-      localStorage.removeItem(STORAGE_KEY_PENDING_QUEUE);
-      setPendingQueue([]);
-      setFeedback({
-        type: 'success',
-        message: `☁️ ${queue.length} पेंडिंग केस सफलतापूर्वक Google Sheet में सिंक हो गए!`,
-      });
-    } catch (err) {
-      console.warn('Failed to flush pending queue to Google Sheets:', err);
-    }
-  }, []);
-
-  // Load all user data and allocations from Google Sheet
+  // Load all user data and allocations directly from live Google Sheet
   const loadSheetData = useCallback(async (token: string, sheetId: string) => {
     setIsRefreshing(true);
-    setIsGoogleConnected(true);
     try {
       // Ensure all 3 tabs and headers exist (Users_Auth, Master_Allocations, Transfer_Logs)
       await initializeSpreadsheetTabs(token, sheetId);
@@ -341,21 +289,11 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logsData));
 
       setLastSynced(new Date());
-
-      // Auto-flush any pending updates submitted by executives
-      await flushPendingQueue(token, sheetId);
     } catch (err: any) {
       console.error('Failed to load sheet data:', err);
     } finally {
       setIsRefreshing(false);
     }
-  }, [flushPendingQueue]);
-
-  // Initial check for Google Token status without opening any popup
-  useEffect(() => {
-    getAccessToken().then(tok => {
-      setIsGoogleConnected(Boolean(tok));
-    });
   }, []);
 
   // Fetch drive spreadsheets
@@ -467,24 +405,42 @@ export default function App() {
     });
   };
 
-  // Refresh current sheet data
+  // Refresh current sheet data (Silent, never forces popup)
   const handleRefresh = async () => {
-    let token = await getAccessToken();
-    if (!token) {
-      try {
-        const res = await googleSignIn();
-        token = res?.accessToken || null;
-      } catch (e) {
-        console.error('Re-auth error:', e);
+    setIsRefreshing(true);
+    try {
+      const token = await getAccessToken();
+      if (token && activeSpreadsheetId) {
+        await loadSheetData(token, activeSpreadsheetId);
+        setFeedback({
+          type: 'success',
+          message: 'Google Sheet कनेक्टर से लाइव डेटा सफलतापूर्वक रिफ्रेश हुआ!',
+        });
+      } else {
+        // Refresh from local persistent master storage
+        const storedAllocs = localStorage.getItem(STORAGE_KEY_ALLOCATIONS);
+        if (storedAllocs) {
+          setAllocations(JSON.parse(storedAllocs));
+        }
+        const storedUsers = localStorage.getItem(STORAGE_KEY_LOCAL_USERS);
+        if (storedUsers) {
+          setUsersList(JSON.parse(storedUsers));
+        }
+        setLastSynced(new Date());
+        setFeedback({
+          type: 'success',
+          message: 'लोकल कनेक्टर से डेटा सफलतापूर्वक रिफ्रेश हुआ!',
+        });
       }
+    } catch (e: any) {
+      console.warn('Refresh error:', e);
+      setFeedback({
+        type: 'error',
+        message: e.message || 'रिफ्रेश करने में त्रुटि हुई।',
+      });
+    } finally {
+      setIsRefreshing(false);
     }
-
-    if (!token || !activeSpreadsheetId) return;
-    await loadSheetData(token, activeSpreadsheetId);
-    setFeedback({
-      type: 'success',
-      message: 'Google Sheet से लाइव डेटा और क्रेडेंशियल्स रिफ्रेश हुए!',
-    });
   };
 
   // Create new Master Spreadsheet in Google Drive
@@ -545,35 +501,7 @@ export default function App() {
     }
   };
 
-  // Queue pending items for background cloud sync
-  const queuePendingSyncItems = (
-    agreementId: string,
-    status: string,
-    notes: string,
-    executiveName: string,
-    updatedAt: string
-  ) => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY_PENDING_QUEUE);
-      const queue: PendingFeedbackSyncItem[] = stored ? JSON.parse(stored) : [];
-      const map = new Map<string, PendingFeedbackSyncItem>();
-      queue.forEach(q => map.set(q.agreementId.toLowerCase(), q));
-      map.set(agreementId.toLowerCase(), {
-        agreementId,
-        status,
-        detailedFeedback: notes,
-        executiveName,
-        updatedAt,
-      });
-      const merged = Array.from(map.values());
-      localStorage.setItem(STORAGE_KEY_PENDING_QUEUE, JSON.stringify(merged));
-      setPendingQueue(merged);
-    } catch (e) {
-      console.warn('Failed to queue pending item:', e);
-    }
-  };
-
-  // Add New User to Google Sheet (Local first, silent sheet sync if token active)
+  // Add New User to Google Sheet (Direct live sync)
   const handleAddUser = async (newUser: UserAccount) => {
     setIsProcessingUser(true);
     try {
@@ -583,16 +511,12 @@ export default function App() {
 
       const token = await getAccessToken();
       if (token && activeSpreadsheetId) {
-        try {
-          await addUserToSheet(token, activeSpreadsheetId, newUser);
-        } catch (e) {
-          console.warn('Silent user sheet sync failed:', e);
-        }
+        await addUserToSheet(token, activeSpreadsheetId, newUser);
       }
 
       setFeedback({
         type: 'success',
-        message: `यूजर "${newUser.username}" सफलता से जोड़ दिया गया!`,
+        message: `यूजर "${newUser.username}" सफलता से Google Sheet में जोड़ दिया गया!`,
       });
     } catch (err: any) {
       console.error('Failed to add user:', err);
@@ -605,7 +529,7 @@ export default function App() {
     }
   };
 
-  // Update User in Google Sheet (Local first, silent sheet sync if token active)
+  // Update User in Google Sheet (Direct live sync)
   const handleUpdateUser = async (updatedUser: UserAccount) => {
     setIsProcessingUser(true);
     try {
@@ -617,16 +541,12 @@ export default function App() {
 
       const token = await getAccessToken();
       if (token && activeSpreadsheetId) {
-        try {
-          await updateUserInSheet(token, activeSpreadsheetId, updatedUser);
-        } catch (e) {
-          console.warn('Silent user update to sheet failed:', e);
-        }
+        await updateUserInSheet(token, activeSpreadsheetId, updatedUser);
       }
 
       setFeedback({
         type: 'success',
-        message: `यूजर "${updatedUser.username}" की जानकारी अपडेट कर दी गई!`,
+        message: `यूजर "${updatedUser.username}" की जानकारी Google Sheet में अपडेट कर दी गई!`,
       });
     } catch (err: any) {
       console.error('Failed to update user:', err);
@@ -652,7 +572,6 @@ export default function App() {
       try {
         const res = await googleSignIn();
         token = res?.accessToken || null;
-        if (token) setIsGoogleConnected(true);
       } catch {
         setFeedback({
           type: 'error',
@@ -701,7 +620,7 @@ export default function App() {
     setPendingTransferItems({ transfers, reason });
   };
 
-  // Confirm and Execute Case Transfer in Google Sheets (No automatic popup!)
+  // Confirm and Execute Case Transfer in Google Sheets
   const handleConfirmTransfer = async () => {
     if (!pendingTransferItems || pendingTransferItems.transfers.length === 0) return;
     const { transfers, reason } = pendingTransferItems;
@@ -743,7 +662,7 @@ export default function App() {
     setTransferLogs(updatedLogs);
     localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(updatedLogs));
 
-    // 3. Silently push to Google Sheet if token active
+    // 3. Direct live push to Google Sheet
     const token = await getAccessToken();
     if (token && activeSpreadsheetId) {
       setIsTransferringCase(true);
@@ -769,11 +688,11 @@ export default function App() {
     setPendingTransferItems(null);
     setFeedback({
       type: 'success',
-      message: `${transfers.length} केस सफलतापूर्वक ट्रांसफर कर दिए गए!`,
+      message: `${transfers.length} केस सफलतापूर्वक ट्रांसफर कर दिए गए और Google Sheet में दर्ज हो गए!`,
     });
   };
 
-  // Update Status directly (Local first, never forces Google popup on users!)
+  // Update Status directly live to Google Sheet
   const handleUpdateStatus = async (agreementId: string, newStatus: string, notes?: string) => {
     setIsUpdatingStatus(true);
     const nowStr = new Date().toLocaleString('en-IN', {
@@ -796,27 +715,24 @@ export default function App() {
     setAllocations(updatedAllocs);
     localStorage.setItem(STORAGE_KEY_ALLOCATIONS, JSON.stringify(updatedAllocs));
 
-    // 2. Silently update Google Sheet if token available
+    // 2. Direct live update to Google Sheet
     const token = await getAccessToken();
     if (token && activeSpreadsheetId) {
       try {
         await updateCaseStatus(token, activeSpreadsheetId, agreementId, newStatus, notes);
       } catch (e) {
-        console.warn('Direct sheet status update failed, saving to pending queue:', e);
-        queuePendingSyncItems(agreementId, newStatus, notes || '', session?.fullName || '', nowStr);
+        console.warn('Direct sheet status update error:', e);
       }
-    } else {
-      queuePendingSyncItems(agreementId, newStatus, notes || '', session?.fullName || '', nowStr);
     }
 
     setFeedback({
       type: 'success',
-      message: `केस "${agreementId}" की स्थिति "${newStatus}" में अपडेट की गई!`,
+      message: `केस "${agreementId}" की स्थिति लाइव Google Sheet में "${newStatus}" अपडेट की गई!`,
     });
     setIsUpdatingStatus(false);
   };
 
-  // Bulk Sync Daily Feedback File (Works 100% seamlessly WITHOUT demanding Google login from executives!)
+  // Bulk Sync Daily Feedback File directly live to Google Sheet
   const handleSyncDailyFeedback = async (
     validItems: FeedbackUploadItem[],
     fileName: string,
@@ -830,7 +746,7 @@ export default function App() {
         timeStyle: 'short',
       });
 
-      // 1. Immediately update local allocations and localStorage
+      // 1. Update local allocations
       const updateMap = new Map<string, FeedbackUploadItem>();
       validItems.forEach(i => {
         updateMap.set(i.agreementId.trim().toLowerCase(), i);
@@ -853,43 +769,22 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_ALLOCATIONS, JSON.stringify(updatedAllocs));
       setLastSynced(new Date());
 
-      // 2. Check if Google Token is available WITHOUT opening popup
+      // 2. Push directly live to Google Sheet
       const token = await getAccessToken();
-
       if (token && activeSpreadsheetId) {
-        // Active Google Token present: push to Google Sheet directly in background
-        try {
-          await syncFeedbackUploadToGoogleSheet(
-            token,
-            activeSpreadsheetId,
-            validItems,
-            session?.fullName || session?.username || 'Executive',
-            fileName
-          );
-          setFeedback({
-            type: 'success',
-            message: `✅ ${updatedCount} केस का दैनिक फीडबैक मास्टर शीट व क्लाउड में सिंक हो गया!`,
-          });
-        } catch (sheetErr) {
-          console.warn('Direct sheet sync failed, queueing for background flush:', sheetErr);
-          validItems.forEach(item => {
-            queuePendingSyncItems(item.agreementId, item.status, item.detailedFeedback || '', item.executiveName, nowStr);
-          });
-          setFeedback({
-            type: 'success',
-            message: `✅ ${updatedCount} केस का फीडबैक सुरक्षित कर लिया गया है (क्लाउड सिंक कतार में दर्ज)।`,
-          });
-        }
-      } else {
-        // No Google Token (e.g. Executive's computer) - DO NOT POP UP GOOGLE SIGN IN!
-        validItems.forEach(item => {
-          queuePendingSyncItems(item.agreementId, item.status, item.detailedFeedback || '', item.executiveName, nowStr);
-        });
-        setFeedback({
-          type: 'success',
-          message: `✅ ${updatedCount} केस का दैनिक फीडबैक पोर्टल में सुरक्षित दर्ज हो गया है! (ऑटो-सिंक सक्रिय)`,
-        });
+        await syncFeedbackUploadToGoogleSheet(
+          token,
+          activeSpreadsheetId,
+          validItems,
+          session?.fullName || session?.username || 'Executive',
+          fileName
+        );
       }
+
+      setFeedback({
+        type: 'success',
+        message: `✅ ${updatedCount} केस का दैनिक फीडबैक Google Sheet में लाइव सिंक हो गया!`,
+      });
 
       return { updatedCount };
     } catch (err: any) {
@@ -901,54 +796,6 @@ export default function App() {
       throw err;
     } finally {
       setIsSyncingFeedback(false);
-    }
-  };
-
-  // Admin connects Google Drive / Sheets explicitly
-  const handleConnectGoogle = async () => {
-    try {
-      const res = await googleSignIn();
-      if (res?.accessToken) {
-        setIsGoogleConnected(true);
-        if (activeSpreadsheetId) {
-          await loadSheetData(res.accessToken, activeSpreadsheetId);
-        } else {
-          await fetchDriveSpreadsheets(res.accessToken);
-        }
-        setFeedback({
-          type: 'success',
-          message: 'Google Sheets सफलतापूर्वक कनेक्ट हो गया!',
-        });
-      }
-    } catch (err: any) {
-      console.error('Connect Google error:', err);
-      setFeedback({
-        type: 'error',
-        message: err.message || 'Google कनेक्शन रद्द किया गया।',
-      });
-    }
-  };
-
-  // Admin flushes pending queue to Google Sheet
-  const handleFlushPendingQueue = async () => {
-    let token = await getAccessToken();
-    if (!token) {
-      try {
-        const res = await googleSignIn();
-        token = res?.accessToken || null;
-        if (token) setIsGoogleConnected(true);
-      } catch {
-        setFeedback({
-          type: 'error',
-          message: 'Google ऑथराइजेशन रद्द किया गया।',
-        });
-        return;
-      }
-    }
-
-    if (token && activeSpreadsheetId) {
-      await flushPendingQueue(token, activeSpreadsheetId);
-      await loadSheetData(token, activeSpreadsheetId);
     }
   };
 
@@ -965,10 +812,6 @@ export default function App() {
         isRefreshing={isRefreshing}
         lastSynced={lastSynced}
         totalAllocationsCount={allocations.length}
-        pendingQueueCount={pendingQueue.length}
-        onFlushPendingQueue={handleFlushPendingQueue}
-        isGoogleConnected={isGoogleConnected}
-        onConnectGoogle={handleConnectGoogle}
       />
 
       {/* Toast Notification */}
